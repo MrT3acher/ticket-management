@@ -43,16 +43,16 @@ class Signup(BaseHandler):
         self.write(DefaultHandler.response)
 
     def post(self):
-        username = self.get_body_argument('username')
+        username = self.get_argument('username')
         if self.check_username(username):
             self.write({
                 'message': 'This Username Exist.',
                 'code': 1
             })
         else:
-            password = self.get_body_argument('password')
-            firstname = self.get_body_argument('firstname')
-            lastname = self.get_body_argument('lastname')
+            password = self.get_argument('password')
+            firstname = self.get_argument('firstname')
+            lastname = self.get_argument('lastname')
             result = self.db.execute(
                 "INSERT INTO `users` (`username`, `password`, `firstname`, `lastname`) VALUES (%s, %s, %s, %s)",
                 username, password, firstname, lastname)
@@ -72,14 +72,14 @@ class Login(BaseHandler):
         self.write(DefaultHandler.response)
 
     def post(self):
-        username = self.get_body_argument('username')
-        password = self.get_body_argument('password')
+        username = self.get_argument('username')
+        password = self.get_argument('password')
         result = self.check_auth(username, password)
         if result:
             token = result['token']
             if token == "":
                 string = username + str(random())
-                token = md5(string.encode())
+                token = md5(string.encode()).hexdigest()
                 self.db.execute("UPDATE `users` SET `token`=%s WHERE `username`=%s AND `password`=%s", token, username,
                             password)
             self.write({
@@ -98,8 +98,8 @@ class Logout(BaseHandler):
         self.write(DefaultHandler.response)
 
     def post(self):
-        username = self.get_body_argument('username')
-        password = self.get_body_argument('password')
+        username = self.get_argument('username')
+        password = self.get_argument('password')
         result = self.check_auth(username, password)
         if result:
             self.db.execute("UPDATE `users` SET `token`=%s WHERE `username`=%s AND `password`=%s", "", username,
@@ -119,12 +119,12 @@ class SendTicket(BaseHandler):
         self.write(DefaultHandler.response)
 
     def post(self):
-        token = self.get_body_argument('token')
-        subject = self.get_body_argument('subject')
-        body = self.get_body_argument('body')
+        token = self.get_argument('token')
+        subject = self.get_argument('subject')
+        body = self.get_argument('body')
         user = self.check_token(token)
         if user:
-            result = self.db.insert("INSERT INTO `tickets` (`subject`, `body`, `user_id`) VALUES (%s, %s, %s, %i)",
+            result = self.db.insert("INSERT INTO `tickets` (`subject`, `body`, `user_id`) VALUES (%s, %s, %d)",
                                     subject, body, user['id'])
             self.write({
                 'message': 'Ticket Sent Successfully',
@@ -142,9 +142,9 @@ class UserGetTickets(BaseHandler):
         token = self.get_query_argument('token')
         user = self.check_token(token)
         if user:
-            result = self.db.query("SELECT * FROM `tickets` WHERE `user_id`=%i", user['id'])
+            result = self.db.query("SELECT * FROM `tickets` WHERE `user_id`=%d", user['id'])
             response = {
-                'message': 'There Are -%i-' % len(result),
+                'message': 'There Are -%d-' % len(result),
                 'code': 200
             }
             for i, row in enumerate(result):
@@ -164,13 +164,13 @@ class CloseTicket(BaseHandler):
         self.write(DefaultHandler.response)
 
     def post(self):
-        id = self.get_body_argument('id')
-        token = self.get_body_argument('token')
+        id = self.get_argument('id')
+        token = self.get_argument('token')
         user = self.check_token(token)
         if user:
-            result = self.db.execute("SELECT * FROM `tickets` WHERE `user_id`=%i AND `id`=%i", user['id'], id)
+            result = self.db.execute("SELECT * FROM `tickets` WHERE `user_id`=%d AND `id`=%d", user['id'], id)
             self.write({
-                'message': 'Ticket With id -%i- Closed Successfully' % id,
+                'message': 'Ticket With id -%d- Closed Successfully' % id,
                 'code': 200
             })
         else:
@@ -184,14 +184,20 @@ class AdminGetTickets(BaseHandler):
         token = self.get_query_argument('token')
         user = self.check_token(token)
         if user:
-            result = self.db.query("SELECT * FROM `tickets`")
-            response = {
-                'message': 'There Are -%i-' % len(result),
-                'code': 200
-            }
-            for i, row in enumerate(result):
-                response["block " + str(i)] = row
-            self.write(response)
+            if user["id"] != 1:
+                self.write({
+                    'message': 'Premission Denied',
+                    'code': 2
+                })
+            else:
+                result = self.db.query("SELECT * FROM `tickets`")
+                response = {
+                    'message': 'There Are -%d-' % len(result),
+                    'code': 200
+                }
+                for i, row in enumerate(result):
+                    response["block " + str(i)] = row
+                self.write(response)
         else:
             self.write({
                 'message': 'Wrong Token',
@@ -206,17 +212,23 @@ class TicketResponse(BaseHandler):
         self.write(DefaultHandler.response)
 
     def post(self):
-        id = self.get_body_argument('id')
-        body = self.get_body_argument('body')
-        token = self.get_body_argument('token')
+        id = self.get_argument('id')
+        body = self.get_argument('body')
+        token = self.get_argument('token')
         user = self.check_token(token)
         if user:
-            self.db.execute("INSERT INTO `tickets` (`body`, `ticket_id`) VALUES (%s, %i)", body, id)
-            self.db.execute("UPDATE `tickets` SET `status`='close' WHERE `id`=%i", id)
-            self.write({
-                'message': 'Response to Ticket With id -%i- Sent Successfully' % id,
-                'code': 200
-            })
+            if user["id"] != 1:
+                self.write({
+                    'message': 'Premission Denied',
+                    'code': 2
+                })
+            else:
+                self.db.execute("INSERT INTO `tickets` (`body`, `ticket_id`) VALUES (%s, %d)", body, id)
+                self.db.execute("UPDATE `tickets` SET `status`='close' WHERE `id`=%d", id)
+                self.write({
+                    'message': 'Response to Ticket With id -%d- Sent Successfully' % id,
+                    'code': 200
+                })
         else:
             self.write({
                 'message': 'Wrong Token',
@@ -228,16 +240,22 @@ class TicketChangeStatus(BaseHandler):
         self.write(DefaultHandler.response)
 
     def post(self):
-        id = self.get_body_argument('id')
-        status = self.get_body_argument('status')
-        token = self.get_body_argument('token')
+        id = self.get_argument('id')
+        status = self.get_argument('status')
+        token = self.get_argument('token')
         user = self.check_token(token)
         if user:
-            self.db.execute("UPDATE `tickets` SET `status`=%s WHERE `id`=%i", status, id)
-            self.write({
-                'message': 'Status Ticket With id -1- Changed Successfully' % id,
-                'code': 200
-            })
+            if user["id"] != 1:
+                self.write({
+                    'message': 'Premission Denied',
+                    'code': 2
+                })
+            else:
+                self.db.execute("UPDATE `tickets` SET `status`=%s WHERE `id`=%d", status, id)
+                self.write({
+                    'message': 'Status Ticket With id -%d- Changed Successfully' % id,
+                    'code': 200
+                })
         else:
             self.write({
                 'message': 'Wrong Token',
