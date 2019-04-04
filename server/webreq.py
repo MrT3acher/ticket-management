@@ -14,6 +14,8 @@ class BaseHandler(tornado.web.RequestHandler):
         else :
             return False
     def check_token(self, token):
+        if token == None or token == "":
+            return  None
         result = self.db.get("SELECT * from `users` where `token`=%s", token)
         if result:
             return result
@@ -77,7 +79,7 @@ class Login(BaseHandler):
         result = self.check_auth(username, password)
         if result:
             token = result['token']
-            if token == "":
+            if token == None or token == "":
                 string = username + str(random())
                 token = md5(string.encode()).hexdigest()
                 self.db.execute("UPDATE `users` SET `token`=%s WHERE `username`=%s AND `password`=%s", token, username,
@@ -102,7 +104,7 @@ class Logout(BaseHandler):
         password = self.get_argument('password')
         result = self.check_auth(username, password)
         if result:
-            self.db.execute("UPDATE `users` SET `token`=%s WHERE `username`=%s AND `password`=%s", "", username,
+            self.db.execute("UPDATE `users` SET `token`=NULL WHERE `username`=%s AND `password`=%s", username,
                             password)
             self.write({
                 'message': 'Logged Out Successfully',
@@ -124,8 +126,7 @@ class SendTicket(BaseHandler):
         body = self.get_argument('body')
         user = self.check_token(token)
         if user:
-            result = self.db.insert("INSERT INTO `tickets` (`subject`, `body`, `user_id`) VALUES (%s, %s, %d)",
-                                    subject, body, user['id'])
+            result = self.db.insert("INSERT INTO `tickets` (`subject`, `body`, `date`, `user_id`) VALUES (%s, %s, NOW(), %s)", subject, body, user['id'])
             self.write({
                 'message': 'Ticket Sent Successfully',
                 'id': result,
@@ -142,12 +143,15 @@ class UserGetTickets(BaseHandler):
         token = self.get_query_argument('token')
         user = self.check_token(token)
         if user:
-            result = self.db.query("SELECT * FROM `tickets` WHERE `user_id`=%d", user['id'])
+            result = self.db.query("SELECT * FROM `tickets` WHERE `user_id`=%s", user['id'])
             response = {
-                'message': 'There Are -%d-' % len(result),
+                'message': 'There Are -%d- Tickets' % len(result),
                 'code': 200
             }
             for i, row in enumerate(result):
+                row['date'] = row['date'].strftime("%Y-%m-%d %H:%M:%S")
+                answers = self.db.query("SELECT body, id FROM `answers` WHERE `ticket_id`=%s", row['id'])
+                row['answers'] = answers
                 response["block " + str(i)] = row
             self.write(response)
         else:
@@ -168,11 +172,18 @@ class CloseTicket(BaseHandler):
         token = self.get_argument('token')
         user = self.check_token(token)
         if user:
-            result = self.db.execute("SELECT * FROM `tickets` WHERE `user_id`=%d AND `id`=%d", user['id'], id)
-            self.write({
-                'message': 'Ticket With id -%d- Closed Successfully' % id,
-                'code': 200
-            })
+            result = self.db.update("UPDATE `tickets` SET `status`='close' WHERE `user_id`=%s AND `id`=%s", user['id'], id)
+            print(result)
+            if result:
+                self.write({
+                    'message': 'Ticket With id -%d- Closed Successfully' % int(id),
+                    'code': 200
+                })
+            else:
+                self.write({
+                    'message': 'Ticket is already closed or you entered wrong ticket id',
+                    'code': 2
+                })
         else:
             self.write({
                 'message': 'Wrong Token',
@@ -192,10 +203,13 @@ class AdminGetTickets(BaseHandler):
             else:
                 result = self.db.query("SELECT * FROM `tickets`")
                 response = {
-                    'message': 'There Are -%d-' % len(result),
+                    'message': 'There Are -%d- Tickets' % len(result),
                     'code': 200
                 }
                 for i, row in enumerate(result):
+                    row['date'] = row['date'].strftime("%Y-%m-%d %H:%M:%S")
+                    answer = self.db.query("SELECT body, id FROM `answers` WHERE `ticket_id`=%s", row['id'])
+                    row['answers'] = answer
                     response["block " + str(i)] = row
                 self.write(response)
         else:
@@ -223,12 +237,13 @@ class TicketResponse(BaseHandler):
                     'code': 2
                 })
             else:
-                self.db.execute("INSERT INTO `tickets` (`body`, `ticket_id`) VALUES (%s, %d)", body, id)
-                self.db.execute("UPDATE `tickets` SET `status`='close' WHERE `id`=%d", id)
-                self.write({
-                    'message': 'Response to Ticket With id -%d- Sent Successfully' % id,
-                    'code': 200
-                })
+                result = self.db.insert("INSERT INTO `answers` (`body`, `ticket_id`) VALUES (%s, %s)", body, id)
+                self.db.update("UPDATE `tickets` SET `status`='close' WHERE `id`=%s", id)
+                if result:
+                    self.write({
+                        'message': 'Response to Ticket With id -%d- Sent Successfully' % int(id),
+                        'code': 200
+                    })
         else:
             self.write({
                 'message': 'Wrong Token',
@@ -251,9 +266,9 @@ class TicketChangeStatus(BaseHandler):
                     'code': 2
                 })
             else:
-                self.db.execute("UPDATE `tickets` SET `status`=%s WHERE `id`=%d", status, id)
+                self.db.execute("UPDATE `tickets` SET `status`=%s WHERE `id`=%s", status, id)
                 self.write({
-                    'message': 'Status Ticket With id -%d- Changed Successfully' % id,
+                    'message': 'Status Ticket With id -%d- Changed Successfully' % int(id),
                     'code': 200
                 })
         else:

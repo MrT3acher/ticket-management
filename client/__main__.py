@@ -1,19 +1,25 @@
 import http.client
 import json
+import urllib.parse
 import argparse
 from getpass import getpass
 
 parser = argparse.ArgumentParser(description='Client program of ticket-management project')
-parser.add_argument('--server', default='localhost:1104', help='server address')
+parser.add_argument('--host', default='127.0.0.1', help='hostname')
+parser.add_argument('--port', default=1104, help='port number of the server', type=int)
+parser.add_argument('--verbose', default=False, type=bool)
 args = parser.parse_args()
+
+if args.verbose:
+    print("[!] Working with %s:%i server" % (args.host, args.port))
 
 token = ""
 saved_username = ""
 saved_password = ""
 
-def request(function, params):
-    connection = http.client.HTTPConnection(args['server'])
-    headers = {'Content-type': 'application/json'}
+def request(function, params={}):
+    connection = http.client.HTTPConnection(args.host, args.port)
+    headers = {}
 
     available_requests = {
         'signup': 'POST',
@@ -24,35 +30,51 @@ def request(function, params):
         'closeticket': 'POST',
         'getticketmod': 'GET',
         'restoticketmod': 'POST',
-        'chagestatus': 'POST'
+        'changestatus': 'POST'
     }
+    method = available_requests[function]
 
     if token != "":
         params['token'] = token
-    json_params = json.dumps(params)
-    connection.request(available_requests[function], '/' + function, json_params, headers)
+    url_params = urllib.parse.urlencode(params)
 
-    response = connection.getresponse().read().decode()
-    print(response)
+    if args.verbose:
+        print("[!] %s request to /%s" % (available_requests[function], function))
+        print("[!] request body: " + url_params)
+
+    if method == 'POST':
+        headers['Content-type'] = 'application/x-www-form-urlencoded'
+        connection.request(method, '/' + function, url_params, headers)
+    else:
+        connection.request(method, '/' + function + '?' + url_params, headers=headers)
+
+    response = connection.getresponse()
+    response_text = response.read().decode()
+    if args.verbose:
+        print("[!] reponse: " + response_text)
     connection.close()
-    return json.loads(response)
+    return json.loads(response_text)
 
 while token == "":
     what = input("""First you need to Signin or Signup: 
     1. Signin
     2. Signup
-        select: """)
-    if what == 1:
+select: """)
+    if what == '1':
         username = input("Enter username: ")
         saved_username = username
         password = getpass("Enter Password: ")
         saved_password = password
         response = request("login", {'username': username, 'password': password})
+        if response['code'] == 200:
+            print('[+] ' + response['message'])
+        else:
+            print('[X] ' + response['message'])
         try:
             token = response['token']
         except:
             pass
-    elif what == 2:
+    elif what == '2':
         print("The fields with * are necessary")
         username = ""
         while username == "":
@@ -69,7 +91,11 @@ while token == "":
                 print("[X] Password and Confirm Password must be equal")
         firstname = input("Firstname: ")
         lastname = input("Lastname: ")
-        request("signup", {'username': username, 'password': password, 'firstname': firstname, 'lastname': lastname})
+        response = request("signup", {'username': username, 'password': password, 'firstname': firstname, 'lastname': lastname})
+        if response['code'] == 200:
+            print('[+] ' + response['message'])
+        else:
+            print('[X] ' + response['message'])
 
 print("Enter help to see a list of commands available")
 
@@ -81,40 +107,75 @@ class Commands:
 
     @staticmethod
     def logout():
-        request("logout", {'username': saved_username, 'password': saved_password})
+        response = request("logout", {'username': saved_username, 'password': saved_password})
+        if response['code'] == 200:
+            print('[+] ' + response['message'])
+        else:
+            print('[X] ' + response['message'])
+        exit()
 
     @staticmethod
     def sendticket():
         subject = input("Subject: ")
         body = input("Body: ")
-        request("sendticket", {'subject': subject, 'body': body})
+        response = request("sendticket", {'subject': subject, 'body': body})
+        if response['code'] == 200:
+            print('[+] ' + response['message'])
+        else:
+            print('[X] ' + response['message'])
 
     @staticmethod
     def getticketcli():
-        request('getticketcli')
+        response = request('getticketcli')
+        if response['code'] == 200:
+            print('[+] ' + response['message'])
+            for key in response:
+                if key.find('block') != -1:
+                    print("\t - " + str(response[key]))
+        else:
+            print('[X] ' + response['message'])
 
     @staticmethod
     def closeticket():
         id = input("Ticket id: ")
-        request('closeticket', {'id': id})
+        response = request('closeticket', {'id': id})
+        if response['code'] == 200:
+            print('[+] ' + response['message'])
+        else:
+            print('[X] ' + response['message'])
 
     @staticmethod
     def getticketmod():
-        request('getticketmod')
+        response = request('getticketmod')
+        if response['code'] == 200:
+            print('[+] ' + response['message'])
+            for key in response:
+                if key.find('block') != -1:
+                    print("\t - " + str(response[key]))
+        else:
+            print('[X] ' + response['message'])
 
     @staticmethod
     def restoticketmod():
         id = input("Ticket id to response to: ")
         body = input("Body of response: ")
-        request('restoticketmod', {'id': id, 'body': body})
+        response = request('restoticketmod', {'id': id, 'body': body})
+        if response['code'] == 200:
+            print('[+] ' + response['message'])
+        else:
+            print('[X] ' + response['message'])
 
     @staticmethod
-    def chagestatus():
+    def changestatus():
         id = input("Ticket id to change status: ")
         status = ''
         while status not in ['open', 'close', 'check']:
             status = input("New status (open/close/check): ")
-        request('chagestatus', {'id': id, 'status': status})
+        response = request('changestatus', {'id': id, 'status': status})
+        if response['code'] == 200:
+            print('[+] ' + response['message'])
+        else:
+            print('[X] ' + response['message'])
 
 
 commands = {
@@ -125,10 +186,14 @@ commands = {
     'closeticket': Commands.closeticket,
     'getticketmod': Commands.getticketmod,
     'restoticketmod': Commands.restoticketmod,
-    'chagestatus': Commands.chagestatus
+    'changestatus': Commands.changestatus
 }
 
 while 1:
     command = input("> ")
 
-    commands[command]()
+    try:
+        commands[command]()
+    except KeyError:
+        print("[X] Wrong Command")
+        continue
